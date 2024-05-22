@@ -55,7 +55,10 @@ select count (*) from items
 | Italy                     | #                             |
 
 ```sql
--- result here
+select count(*) CustomerCountDistinct, co.country_name Country_name from customer cu
+join countries co on cu.country_code = co .country_code
+where co.country_name = 'France' or co.country_name = 'Italy'
+group by co.country_name;
 ```
 
 ### 2) ТОП 10 покупателей по расходам
@@ -71,7 +74,12 @@ select count (*) from items
 | #                      | #           |
 
 ```sql
--- result here
+select cu.customer_name, sum(o.quantity * i.item_price) Revenue from orders o
+join customers cu on o.customer_id = cu.customer_id
+join items i on o,item_id = i.item_id
+group by cu.customer_name
+order by revenue DESC
+limit 10;
 ```
 
 ### 3) Общая выручка USD по странам, если нет дохода, вернуть NULL
@@ -85,7 +93,16 @@ select count (*) from items
 | Tanzania                  | #                     |
 
 ```sql
--- result here
+select co.country_name, 
+    case
+        when sum(o.quantity * i.item_price) > 0 then sum(o.quantity * i.item_price)
+        else null
+    end RevenuePerCountry
+from countries co
+left join customers cu on cu.country_code = co.country_code
+left join orders o on o.customer_id = c.customer_id
+join items i on o.item_id = i.item_id
+group by co.country_name
 ```
 
 ### 4) Самый дорогой товар, купленный одним покупателем
@@ -101,7 +118,38 @@ select count (*) from items
 | #                | #                  | #                         |
 
 ```sql
--- result here
+with MaxPricePerCustomer AS (
+    select 
+        o.customer_id,
+        MAX(i.item_price) AS max_price
+    from Orders o
+    join Items i on o.item_id = i.item_id
+    group by 
+        o.customer_id
+),
+MostExpensiveItems AS (
+    select 
+        o.customer_id,
+        cu.customer_name,
+        i.item_name,
+        i.item_price
+    from 
+        Orders o
+    join 
+        Items i on o.item_id = i.item_id
+    join 
+        Customers cu on o.customer_id = cu.customer_id
+    join 
+        MaxPricePerCustomer mp on o.customer_id = mp.customer_id and i.item_price = mp.max_price
+)
+SELECT DISTINCT ON (customer_id)
+    customer_id,
+    customer_name,
+    item_name AS MostExpensiveItemName
+FROM 
+    MostExpensiveItems;
+
+
 ```
 
 ### 5) Ежемесячный доход
@@ -117,7 +165,12 @@ select count (*) from items
 | #                     | #                 |
 
 ```sql
--- result here
+select to_char(o.date_time, 'MM') Month,
+    SUM(o.quantity * i.item_price) TotalRevenue
+from orders o
+join items i ON o.item_id = i.item_id
+group by to_char(o.date_time, 'MM')
+order by to_char(o.date_time, 'MM');
 ```
 
 ### 6) Найти дубликаты
@@ -127,7 +180,15 @@ select count (*) from items
 Вы должны их найти и вернуть количество дубликатов.
 
 ```sql
--- result here
+select 
+    o.date_time,
+    o.customer_id,
+    o.item_id,
+    count(*) - 1 AS DuplicateCount
+from Orders o
+group by o.date_time, o.customer_id, o.item_id
+having count(*) > 1;
+
 ```
 
 ### 7) Найти "важных" покупателей
@@ -146,7 +207,19 @@ select count (*) from items
 | #                     | #                             |
 
 ```sql
--- result here
+select 
+    o.customer_id,
+    COUNT(*) TotalOrdersCount
+from orders o
+join 
+    (select 
+        customer_id, 
+        min(date_time) first_order_date
+     from orders
+     group by customer_id) first_orders on o.customer_id = first_orders.customer_id
+where o.date_time > first_orders.first_order_date
+group by o.customer_id
+order by TotalOrdersCount DESC;
 ```
 
 ### 8) Найти покупателей с "ростом" за последний месяц
@@ -166,5 +239,27 @@ select count (*) from items
 | #                     | #                 |
 
 ```sql
--- result here
+with MonthlyRevenue as (
+    select 
+        o.customer_id,
+        TO_CHAR(o.date_time, 'YYYY-MM') Month,
+        SUM(o.quantity * i.item_price) Revenue
+    from orders o
+    join items i on o.item_id = i.item_id
+    group by o.customer_id, TO_CHAR(o.date_time, 'YYYY-MM')
+),
+AvgMonthlyRevenue as (
+    select 
+        customer_id,
+        AVG(Revenue) AvgRevenue
+    from MonthlyRevenue
+    group by customer_id
+)
+select 
+    mr.customer_id,
+    mr.Revenue TotalRevenue
+from MonthlyRevenue mr
+join AvgMonthlyRevenue amr on mr.customer_id = amr.customer_id
+where mr.Month = to_char(date_trunc('month', current_date) - interval '1 month', 'YYYY-MM')
+    and mr.Revenue > amr.AvgRevenue;
 ```
